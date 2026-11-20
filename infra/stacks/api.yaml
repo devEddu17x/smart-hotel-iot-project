@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: HTTP API v2 and Lambda functions for commands, camera, and user management
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, qa, prod]
+    Description: Deployment environment (dev, qa, prod)
+  UserPoolId:
+    Type: String
+    Description: Cognito User Pool ID
+  UserPoolClientId:
+    Type: String
+    Description: Cognito User Pool App Client ID
+  ThingName:
+    Type: String
+    Description: AWS IoT Thing name for the ESP32 controller
+  EventsTableName:
+    Type: String
+    Description: DynamoDB Events table name
+  RfidCardsTableName:
+    Type: String
+    Description: DynamoDB RFID cards table name
+  UsersTableName:
+    Type: String
+    Description: DynamoDB Users table name
+  KvsStreamName:
+    Type: String
+    Description: Kinesis Video Stream name
+  KvsStreamArn:
+    Type: String
+    Description: Kinesis Video Stream ARN
+  SnapshotsBucketName:
+    Type: String
+    Description: S3 bucket name for ESP32-CAM snapshots
+  DeviceApiKey:
+    Type: String
+    NoEcho: true
+    Default: change-me-in-params
+    Description: Shared key for ESP32-CAM snapshot upload URL requests
+
+Resources:
+  SmartHotelHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Environment
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Device-Key
+      Auth:
+        DefaultAuthorizer: CognitoJwtAuthorizer
+        Authorizers:
+          CognitoJwtAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+              audience:
+                - !Ref UserPoolClientId
+
+  CommandsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'smart-hotel-commands-${Environment}'
+      Runtime: python3.12
+      Handler: handler.handler
+      CodeUri: ../src/lambdas/commands/
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          THING_NAME: !Ref ThingName
+          EVENTS_TABLE_NAME: !Ref EventsTableName
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref EventsTableName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - iot:Publish
+              Resource: !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/building/${Environment}/commands/*'
+            - Effect: Allow
+              Action:
+                - iot:GetThingShadow
+                - iot:UpdateThingShadow
+              Resource: !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:thing/${ThingName}'
+      Events:
+        GetState:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /state
+            Method: GET
+        LightsCommand:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /commands/lights
+            Method: POST
+        GarageCommand:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /commands/garage
+            Method: POST
+        DoorCommand:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /commands/door
+            Method: POST
+        AlarmCommand:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /commands/alarm
+            Method: POST
+      Tags:
+        Environment: !Ref Environment
+        Project: smart-hotel-iot
+
+  CameraFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'smart-hotel-camera-${Environment}'
+      Runtime: python3.12
+      Handler: handler.handler
+      CodeUri: ../src/lambdas/camera/
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          KVS_STREAM_NAME: !Ref KvsStreamName
+          SNAPSHOTS_BUCKET_NAME: !Ref SnapshotsBucketName
+          DEVICE_API_KEY: !Ref DeviceApiKey
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref SnapshotsBucketName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - kinesisvideo:GetDataEndpoint
+                - kinesisvideo:GetHLSStreamingSessionURL
+              Resource: !Ref KvsStreamArn
+      Events:
+        GetStreamUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /camera/stream
+            Method: GET
+        ListSnapshots:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /camera/snapshots
+            Method: GET
+        GetUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /camera/snapshots/upload-url
+            Method: POST
+            Auth:
+              Authorizer: NONE
+      Tags:
+        Environment: !Ref Environment
+        Project: smart-hotel-iot
+
+  UsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'smart-hotel-users-${Environment}'
+      Runtime: python3.12
+      Handler: handler.handler
+      CodeUri: ../src/lambdas/users/
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          USERS_TABLE_NAME: !Ref UsersTableName
+          RFID_CARDS_TABLE_NAME: !Ref RfidCardsTableName
+          EVENTS_TABLE_NAME: !Ref EventsTableName
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTableName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RfidCardsTableName
+        - DynamoDBReadPolicy:
+            TableName: !Ref EventsTableName
+      Events:
+        GetMe:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /me
+            Method: GET
+        UpdateMe:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /me
+            Method: PUT
+        ListRfidCards:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /rfid-cards
+            Method: GET
+        CreateRfidCard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /rfid-cards
+            Method: POST
+        DeleteRfidCard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /rfid-cards/{cardUid}
+            Method: DELETE
+        ListEvents:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SmartHotelHttpApi
+            Path: /events
+            Method: GET
+      Tags:
+        Environment: !Ref Environment
+        Project: smart-hotel-iot
+
+Outputs:
+  ApiUrl:
+    Description: HTTP API endpoint URL
+    Value: !Sub 'https://${SmartHotelHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
