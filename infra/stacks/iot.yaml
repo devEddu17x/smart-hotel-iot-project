@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS IoT Core Thing, MQTT Policy, and TopicRule to persist events in DynamoDB
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, qa, prod]
+    Description: Deployment environment (dev, qa, prod)
+  EventsTableName:
+    Type: String
+    Description: DynamoDB Events table name
+  EventsTableArn:
+    Type: String
+    Description: DynamoDB Events table ARN
+  KvsStreamArn:
+    Type: String
+    Description: Kinesis Video Stream ARN for Raspberry Pi camera
+
+Resources:
+  BuildingControllerThing:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: !Sub 'smart-hotel-esp32-${Environment}'
+
+  Esp32IoTPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: !Sub 'smart-hotel-esp32-policy-${Environment}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:Connect
+            Resource: !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:client/smart-hotel-esp32-${Environment}'
+          - Effect: Allow
+            Action:
+              - iot:Publish
+            Resource:
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/building/${Environment}/events'
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/building/${Environment}/telemetry'
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/smart-hotel-esp32-${Environment}/shadow/*'
+          - Effect: Allow
+            Action:
+              - iot:Subscribe
+            Resource:
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/building/${Environment}/commands/*'
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topicfilter/$aws/things/smart-hotel-esp32-${Environment}/shadow/*'
+          - Effect: Allow
+            Action:
+              - iot:Receive
+            Resource:
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/building/${Environment}/commands/*'
+              - !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/$aws/things/smart-hotel-esp32-${Environment}/shadow/*'
+
+  IoTRuleDynamoDBRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EventsTableWriteAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !Ref EventsTableArn
+
+  EventsToDynamoRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: !Sub 'smart_hotel_events_to_dynamo_${Environment}'
+      TopicRulePayload:
+        AwsIotSqlVersion: '2016-03-23'
+        RuleDisabled: false
+        Sql: !Sub >-
+          SELECT *, 'main' AS buildingId,
+          parse_time("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", timestamp()) AS timestamp,
+          floor(timestamp() / 1000) + 2592000 AS ttl
+          FROM 'building/${Environment}/events'
+        Actions:
+          - DynamoDBv2:
+              PutItem:
+                TableName: !Ref EventsTableName
+              RoleArn: !GetAtt IoTRuleDynamoDBRole.Arn
+
+  RaspberryPiThing:
+    Type: AWS::IoT::Thing
+    Properties:
+      ThingName: !Sub 'smart-hotel-rpi-cam-${Environment}'
+
+  RaspberryPiKvsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: credentials.iot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: KvsProducerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kinesisvideo:DescribeStream
+                  - kinesisvideo:PutMedia
+                  - kinesisvideo:TagStream
+                  - kinesisvideo:GetDataEndpoint
+                Resource: !Ref KvsStreamArn
+
+  RaspberryPiKvsRoleAlias:
+    Type: AWS::IoT::RoleAlias
+    Properties:
+      RoleAlias: !Sub 'smart-hotel-rpi-kvs-alias-${Environment}'
+      RoleArn: !GetAtt RaspberryPiKvsRole.Arn
+      CredentialDurationSeconds: 3600
+
+  RaspberryPiIoTPolicy:
+    Type: AWS::IoT::Policy
+    Properties:
+      PolicyName: !Sub 'smart-hotel-rpi-policy-${Environment}'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - iot:Connect
+            Resource: !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:client/smart-hotel-rpi-cam-${Environment}'
+          - Effect: Allow
+            Action:
+              - iot:Publish
+            Resource: !Sub 'arn:aws:iot:${AWS::Region}:${AWS::AccountId}:topic/building/${Environment}/camera/status'
+          - Effect: Allow
+            Action:
+              - iot:AssumeRoleWithCertificate
+            Resource: !GetAtt RaspberryPiKvsRoleAlias.RoleAliasArn
+
+Outputs:
+  ThingName:
+    Description: AWS IoT Thing name for the ESP32 controller
+    Value: !Ref BuildingControllerThing
+  IoTPolicyName:
+    Description: AWS IoT Policy name for the ESP32 controller
+    Value: !Ref Esp32IoTPolicy
+  RaspberryPiThingName:
+    Description: AWS IoT Thing name for the Raspberry Pi camera
+    Value: !Ref RaspberryPiThing
+  RaspberryPiRoleAliasName:
+    Description: AWS IoT RoleAlias name for KVS credentials
+    Value: !Ref RaspberryPiKvsRoleAlias
