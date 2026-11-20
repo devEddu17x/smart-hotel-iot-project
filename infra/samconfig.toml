@@ -1,0 +1,27 @@
+version = 0.1
+
+[dev.deploy.parameters]
+profile             = "smart-hotel"
+stack_name          = "smart-hotel-iot-dev"
+region              = "us-east-1"
+capabilities        = "CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+resolve_s3          = true
+confirm_changeset   = true
+parameter_overrides = "Environment=dev"
+
+[qa.deploy.parameters]
+profile             = "smart-hotel"
+stack_name          = "smart-hotel-iot-qa"
+region              = "us-east-1"
+capabilities        = "CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+resolve_s3          = true
+parameter_overrides = "Environment=qa"
+
+[prod.deploy.parameters]
+profile             = "smart-hotel"
+stack_name          = "smart-hotel-iot-prod"
+region              = "us-east-1"
+capabilities        = "CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
+resolve_s3          = true
+confirm_changeset   = true
+parameter_overrides = "Environment=prod"
