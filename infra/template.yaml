@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Root stack for Smart Hotel / Residential IoT
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, qa, prod]
+    Description: Deployment environment
+
+Resources:
+  DataStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./stacks/data.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  AuthStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./stacks/auth.yaml
+      Parameters:
+        Environment: !Ref Environment
+        UsersTableName: !GetAtt DataStack.Outputs.UsersTableName
+
+  IoTStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./stacks/iot.yaml
+      Parameters:
+        Environment: !Ref Environment
+        EventsTableName: !GetAtt DataStack.Outputs.EventsTableName
+        EventsTableArn: !GetAtt DataStack.Outputs.EventsTableArn
+        KvsStreamArn: !GetAtt MediaStack.Outputs.KvsStreamArn
+
+  MediaStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./stacks/media.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  ApiStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./stacks/api.yaml
+      Parameters:
+        Environment: !Ref Environment
+        UserPoolId: !GetAtt AuthStack.Outputs.UserPoolId
+        UserPoolClientId: !GetAtt AuthStack.Outputs.UserPoolClientId
+        ThingName: !GetAtt IoTStack.Outputs.ThingName
+        EventsTableName: !GetAtt DataStack.Outputs.EventsTableName
+        RfidCardsTableName: !GetAtt DataStack.Outputs.RfidCardsTableName
+        UsersTableName: !GetAtt DataStack.Outputs.UsersTableName
+        KvsStreamName: !GetAtt MediaStack.Outputs.KvsStreamName
+        KvsStreamArn: !GetAtt MediaStack.Outputs.KvsStreamArn
+        SnapshotsBucketName: !GetAtt MediaStack.Outputs.SnapshotsBucketName
+
+  WebStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./stacks/web.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+Outputs:
+  Environment:
+    Description: Active deployment environment
+    Value: !Ref Environment
+  EventsTableName:
+    Description: Events DynamoDB table name
+    Value: !GetAtt DataStack.Outputs.EventsTableName
+  RfidCardsTableName:
+    Description: RFID cards DynamoDB table name
+    Value: !GetAtt DataStack.Outputs.RfidCardsTableName
+  UsersTableName:
+    Description: Users DynamoDB table name
+    Value: !GetAtt DataStack.Outputs.UsersTableName
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !GetAtt AuthStack.Outputs.UserPoolId
+  UserPoolClientId:
+    Description: Cognito User Pool App Client ID
+    Value: !GetAtt AuthStack.Outputs.UserPoolClientId
+  IdentityPoolId:
+    Description: Cognito Identity Pool ID
+    Value: !GetAtt AuthStack.Outputs.IdentityPoolId
+  ThingName:
+    Description: AWS IoT Thing name
+    Value: !GetAtt IoTStack.Outputs.ThingName
+  KvsStreamName:
+    Description: Kinesis Video Stream name
+    Value: !GetAtt MediaStack.Outputs.KvsStreamName
+  SnapshotsBucketName:
+    Description: S3 bucket name for ESP32-CAM snapshots
+    Value: !GetAtt MediaStack.Outputs.SnapshotsBucketName
+  ApiUrl:
+    Description: HTTP API endpoint URL
+    Value: !GetAtt ApiStack.Outputs.ApiUrl
+  WebBucketName:
+    Description: S3 bucket name for Web static assets
+    Value: !GetAtt WebStack.Outputs.WebBucketName
+  WebUrl:
+    Description: CloudFront HTTPS URL for the Web SPA
+    Value: !GetAtt WebStack.Outputs.WebUrl

@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Kinesis Video Stream for Raspberry Pi camera and S3 bucket for ESP32-CAM snapshots
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, qa, prod]
+    Description: Deployment environment (dev, qa, prod)
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Resources:
+  EntranceCameraStream:
+    Type: AWS::KinesisVideo::Stream
+    Properties:
+      Name: !Sub 'smart-hotel-entrance-cam-${Environment}'
+      DataRetentionInHours: !If [IsProd, 24, 2]
+      MediaType: video/h264
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: smart-hotel-iot
+
+  SnapshotsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Sub 'smart-hotel-snapshots-${Environment}-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldSnapshots
+            Status: Enabled
+            ExpirationInDays: !If [IsProd, 30, 3]
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: smart-hotel-iot
+
+Outputs:
+  KvsStreamName:
+    Description: Kinesis Video Stream name
+    Value: !Ref EntranceCameraStream
+  KvsStreamArn:
+    Description: Kinesis Video Stream ARN
+    Value: !GetAtt EntranceCameraStream.Arn
+  SnapshotsBucketName:
+    Description: S3 bucket name for ESP32-CAM snapshots
+    Value: !Ref SnapshotsBucket
+  SnapshotsBucketArn:
+    Description: S3 bucket ARN for ESP32-CAM snapshots
+    Value: !GetAtt SnapshotsBucket.Arn
