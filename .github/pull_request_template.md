@@ -1,24 +1,23 @@
-PR title: `feat: ...`, `fix: ...`, or `hotfix: ...` etc
+PR title: `feat: ...`, `fix: ...`, `hotfix: ...`, etc.
 
-Use a Conventional Commits style format and english languaage for the pull request title.
-Use spanish language for content.
+Use the Conventional Commits format and English language for the pull request title and content.
 
-## Resumen
+**## Summary**
 
-## Tipo de cambio
+**## Type of Change**
 
-- [ ] Corrección de errores (bug fix)
-- [ ] Nueva funcionalidad (feature)
-- [ ] Mejora de rendimiento o refactorización
-- [ ] Actualización de documentación
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Performance improvement or refactoring
+- [ ] Documentation update
 
-## Cambios realizados
+**## Changes Made**
 
-## Pruebas realizadas
+**## Tests Performed**
 
-## Checkbox de control
+**## Checklist**
 
-- [ ] Mi código sigue el estilo del proyecto.
-- [ ] He realizado revisiones de mi propio código.
-- [ ] He actualizado la documentación si es necesario.
-- [ ] Mis cambios no introducen nuevas advertencias o errores.
+- [ ] My code follows the project's coding style.
+- [ ] I have reviewed my own code.
+- [ ] I have updated the documentation if necessary.
+- [ ] My changes do not introduce new warnings or errors.
